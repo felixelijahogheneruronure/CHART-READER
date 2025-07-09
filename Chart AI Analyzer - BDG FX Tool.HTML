@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🧠 Chart AI Analyzer - BDG FX Tool</title>
+  <style>
+    body {
+      background: #0d1117;
+      color: #c9f4c7;
+      font-family: 'Courier New', monospace;
+      margin: 0;
+      padding: 0;
+    }
+
+    header {
+      background: #161b22;
+      padding: 20px;
+      text-align: center;
+      font-size: 22px;
+      font-weight: bold;
+      color: #00ff99;
+      border-bottom: 2px solid #00ff99;
+      box-shadow: 0 0 8px #00ff99;
+    }
+
+    .container {
+      padding: 20px;
+      max-width: 900px;
+      margin: auto;
+    }
+
+    select, input[type="file"], input[type="number"], button {
+      background-color: #1c1f26;
+      color: #00ffcc;
+      border: 1px solid #00ffcc;
+      padding: 8px 12px;
+      margin: 10px 0;
+      border-radius: 4px;
+      width: 100%;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background-color: #00ffcc;
+      color: #0d1117;
+    }
+
+    .output-box {
+      background-color: #000;
+      color: #0f0;
+      border: 1px solid #444;
+      padding: 10px;
+      white-space: pre-wrap;
+      overflow-y: auto;
+      max-height: 500px;
+      font-size: 12px;
+      margin-top: 20px;
+    }
+
+    label {
+      display: block;
+      margin-top: 15px;
+      font-weight: bold;
+      color: #0ff;
+    }
+
+    .file-upload {
+      margin-top: 10px;
+      border: 1px dashed #444;
+      padding: 10px;
+    }
+
+    .ascii-section {
+      border-top: 1px solid #333;
+      margin-top: 20px;
+      padding-top: 10px;
+    }
+
+    canvas, img {
+      display: none;
+    }
+
+    hr {
+      border: none;
+      border-top: 1px solid #333;
+      margin: 20px 0;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  📊 Chart Analyzer + OpenCV + OpenRouter AI
+</header>
+
+<div class="container">
+  <label>Select Trader Type</label>
+  <select id="traderType" onchange="updateTimeFrames()">
+    <option value="">-- Choose --</option>
+    <option value="scalper">Scalper (1m)</option>
+    <option value="day">Day Trader (5m, 15m)</option>
+    <option value="swing">Swing Trader (15m, 30m, 1H)</option>
+    <option value="position">Position Trader (4H, 1D)</option>
+  </select>
+
+  <div id="uploadSection" style="display: none;">
+    <label>Upload Chart Images</label>
+    <div id="fileInputs" class="file-upload"></div>
+    <label>Max Width (ASCII scale)</label>
+    <input id="maxWidth" type="number" value="100">
+    <button onclick="startConversion()">Convert + Analyze</button>
+  </div>
+
+  <canvas id="canvas"></canvas>
+  <img id="chartImg">
+
+  <div class="output-box" id="output">Awaiting chart uploads...</div>
+</div>
+
+<script async src="https://docs.opencv.org/4.x/opencv.js" onload="cvReady()"></script>
+
+<script>
+let chartIndex = 0;
+let asciiOutput = [];
+
+const timeFrames = {
+  scalper: ['1m'],
+  day: ['5m', '15m'],
+  swing: ['15m', '30m', '1h'],
+  position: ['4h', '1d']
+};
+
+function cvReady() {
+  document.getElementById('output').textContent = '✅ OpenCV loaded. Select trader type to begin.';
+}
+
+function updateTimeFrames() {
+  const type = document.getElementById('traderType').value;
+  const section = document.getElementById('uploadSection');
+  const container = document.getElementById('fileInputs');
+  container.innerHTML = '';
+  if (!type || !timeFrames[type]) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  timeFrames[type].forEach(label => {
+    container.innerHTML += `<label>${label}: <input type="file" accept="image/*" class="chartUpload" data-frame="${label}"></label><br>`;
+  });
+}
+
+function startConversion() {
+  asciiOutput = [];
+  chartIndex = 0;
+  const uploads = document.querySelectorAll('.chartUpload');
+  if (!uploads.length) return alert('📂 Upload chart images first!');
+  processNext(uploads);
+}
+
+function processNext(files) {
+  if (chartIndex >= files.length) return;
+  const fileInput = files[chartIndex];
+  const file = fileInput.files[0];
+  const label = fileInput.dataset.frame;
+  if (!file) {
+    chartIndex++;
+    processNext(files);
+    return;
+  }
+
+  const reader = new FileReader();
+  const img = document.getElementById('chartImg');
+  reader.onload = e => img.src = e.target.result;
+  img.onload = () => {
+    analyzeChart(img, label);
+    chartIndex++;
+    setTimeout(() => processNext(files), 300);
+  };
+  reader.readAsDataURL(file);
+}
+
+function analyzeChart(img, label) {
+  const maxWidth = parseInt(document.getElementById('maxWidth').value);
+  const ratio = (img.width > maxWidth) ? maxWidth / img.width : 1;
+  const w = Math.round(img.width * ratio);
+  const h = Math.round(img.height * ratio);
+
+  const canvas = document.getElementById('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+
+  let src = cv.imread(canvas);
+  let hsv = new cv.Mat();
+  cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
+  cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
+
+  let greenMask = new cv.Mat();
+  let redMask1 = new cv.Mat();
+  let redMask2 = new cv.Mat();
+  let redMask = new cv.Mat();
+
+  let lowG = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [35, 50, 40, 0]);
+  let highG = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [85, 255, 255, 255]);
+  let lowR1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 70, 50, 0]);
+  let highR1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [10, 255, 255, 255]);
+  let lowR2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [170, 70, 50, 0]);
+  let highR2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 255, 255, 255]);
+
+  cv.inRange(hsv, lowG, highG, greenMask);
+  cv.inRange(hsv, lowR1, highR1, redMask1);
+  cv.inRange(hsv, lowR2, highR2, redMask2);
+  cv.addWeighted(redMask1, 1.0, redMask2, 1.0, 0.0, redMask);
+
+  const gridY = Math.floor(h / 10);
+  const gridX = Math.floor(w / 10);
+
+  let ascii = [];
+  let candles = [];
+
+  for (let x = 0; x < w; x++) {
+    let top = h, bottom = 0, type = 'none';
+    for (let y = 0; y < h; y++) {
+      const g = greenMask.ucharPtr(y, x)[0];
+      const r = redMask.ucharPtr(y, x)[0];
+      if (g > 150 && g > r) {
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+        type = 'bull';
+      } else if (r > 150 && r > g) {
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+        type = 'bear';
+      }
+    }
+    if (type !== 'none') candles.push({ x, top, bottom, type });
+  }
+
+  for (let y = 0; y < h; y++) {
+    let row = '';
+    for (let x = 0; x < w; x++) {
+      const g = greenMask.ucharPtr(y, x)[0];
+      const r = redMask.ucharPtr(y, x)[0];
+      let symbol = ' ';
+      if (y % gridY === 0 && x % gridX === 0) symbol = '┼';
+      else if (y % gridY === 0) symbol = '─';
+      else if (x % gridX === 0) symbol = '│';
+      if (g > 150 && g > r) symbol = '▐';
+      else if (r > 150 && r > g) symbol = '▌';
+      row += symbol;
+    }
+    ascii.push(row);
+  }
+
+  let trend = '↔ Sideways';
+  if (candles.length > 4) {
+    const avgStart = (candles[0].top + candles[0].bottom) / 2;
+    const avgEnd = (candles[candles.length - 1].top + candles[candles.length - 1].bottom) / 2;
+    if (avgStart - avgEnd > 5) trend = '↑ Uptrend';
+    else if (avgEnd - avgStart > 5) trend = '↓ Downtrend';
+  }
+
+  const fullAscii = `\n📊 ${label} Timeframe:\n${ascii.join('\n')}\n📈 Trend: ${trend}\n`;
+  asciiOutput.push(fullAscii);
+  document.getElementById('output').textContent = asciiOutput.join('\n');
+  callOpenRouterAI(fullAscii, label);
+
+  [src, hsv, greenMask, redMask1, redMask2, redMask, lowG, highG, lowR1, highR1, lowR2, highR2].forEach(m => m.delete());
+}
+
+async function callOpenRouterAI(ascii, label) {
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer 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',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: '@preset/ai-trade-algo',
+        messages: [
+          { role: 'system', content: 'You are a forex chart analyst. Analyze ASCII candlestick charts and describe the trend, pattern, and possible entry signals.' },
+          { role: 'user', content: `Chart Timeframe: ${label}\n\n${ascii}` }
+        ]
+      })
+    });
+    const data = await res.json();
+    const reply = data.choices[0].message.content;
+    document.getElementById('output').textContent += `\n🤖 AI Analysis (${label}):\n${reply}\n`;
+  } catch (err) {
+    document.getElementById('output').textContent += '\n⚠️ Error contacting OpenRouter AI.';
+  }
+}
+</script>
+</body>
+</html>
